@@ -1,40 +1,31 @@
 package main;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.TreeMap;
-import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
 
 /**
  *
  * @author Tobin
  */
-public class Game implements Callable<Integer>
+public class Game
 {
     /**A map containing all possible moves*/
     public static TreeMap<Integer, Pair[]> allMoves;
-    
-    /**The executor used to play games*/
-    public static ExecutorService es;
-    
-    public static final TreeMap<Game, Future<Integer>> games = new TreeMap<>();;
     
     /**
      * Main method for the program.
      * @param args The command line arguments
      */
-    public static void main(String args[]) throws ExecutionException, InterruptedException
+    public static void main(String args[])
     {
         allMoves = new TreeMap<>();
         // fill the list of moves
-        allMoves.put(0, new Pair[] {new Pair(3, 1), new Pair(2, 5)});
+        allMoves.put(0, new Pair[] {new Pair(3, 1), new Pair(5, 2)});
         allMoves.put(1, new Pair[] {new Pair(6, 3), new Pair(8, 4)});
         allMoves.put(2, new Pair[] {new Pair(7, 4), new Pair(9, 5)});
-        allMoves.put(3, new Pair[] {new Pair(0, 1), new Pair(5, 4), new Pair(10, 7), new Pair(12, 6)});
+        allMoves.put(3, new Pair[] {new Pair(0, 1), new Pair(5, 4), new Pair(10, 7), new Pair(12, 7)});
         allMoves.put(4, new Pair[] {new Pair(11, 7), new Pair(13, 8)});
         allMoves.put(5, new Pair[] {new Pair(0, 2), new Pair(3, 4), new Pair(12, 8), new Pair(14, 9)});
         allMoves.put(6, new Pair[] {new Pair(1, 3), new Pair(8, 7)});
@@ -47,40 +38,27 @@ public class Game implements Callable<Integer>
         allMoves.put(13, new Pair[] {new Pair(4, 8), new Pair(11, 12)});
         allMoves.put(14, new Pair[] {new Pair(5, 9), new Pair(12, 13)});
         
-        es = Executors.newFixedThreadPool(8);
-        Game firstGame = new Game();
-        games.put(firstGame, es.submit(firstGame));
+        Game g = new Game();
+        LinkedList<GameResult> results = g.play();
         
-        while(true)
+        System.out.println(results.size() + " games played");
+        
+        int count = 0;
+        for(GameResult r : results)
         {
-            Future<Integer> f = null;
-            synchronized(games)
+            if(r.pegsLeft == 1)
             {
-                for(Game g : games.keySet())
+                count++;
+                
+                g = new Game();
+                for(Move m : r.moves)
                 {
-                    f = games.get(g);
-                    if(!f.isDone())
-                    {
-                        break;
-                    }
+                    System.out.println("\n" + m.from + " to " + m.to);
+                    g.jump(m);
+                    System.out.println(g.getBoardState());
                 }
                 
-                if(f == null)
-                {
-                    break;
-                }
-            }
-            
-            // wait for the one that isn't done
-            f.get();
-        }
-        
-        for(Game g : games.keySet())
-        {
-            if(games.get(g).get() == 1)
-            {
-                // report game
-                System.out.println("One Peg!");
+                break;
             }
         }
     }
@@ -88,7 +66,7 @@ public class Game implements Callable<Integer>
     /**The game board.  1 represents a pin, and 0 represents an empty space.*/
     private int board[];
     
-    /**The list of moves taken this game*/
+    /**The list of moves to take this game*/
     private ArrayList<Move> moves;
     
     /**
@@ -107,12 +85,6 @@ public class Game implements Callable<Integer>
         moves = new ArrayList<>();
     }
     
-    /**
-     * Makes a new game with the given board arrangement, and moves
-     * taken.
-     * @param board The initial board
-     * @param moves The moves that have already been made this game
-     */
     public Game(int board[], ArrayList<Move> moves)
     {
         this.board = board;
@@ -127,8 +99,9 @@ public class Game implements Callable<Integer>
      * @param to The index the pin is going to
      * @return The index of the pin that was jumped
      */
-    private int jump(int from, int to)
+    private int jump(Move m)
     {
+        int from = m.from, to = m.to;
         // if the to index is filled, or the from index is empty it is not a
         // valid jump
         if(board[to] == 1 || board[from] == 0)
@@ -161,26 +134,44 @@ public class Game implements Callable<Integer>
         }
     }
     
-    @Override
-    public Integer call() throws Exception
+    private int getPegsRemaining()
     {
-        play();
-        int pegs = 0;
-        for(int i = 0; i < board.length; i++)
+        int sum = 0;
+        
+        for(int i : board)
         {
-            if(board[i] == 1)
+            if(i == 1)
             {
-                pegs++;
+                sum++;
             }
         }
-        return pegs;
+        
+        return sum;
     }
     
-    public void play()
+    private String getBoardState()
     {
-        boolean done = false;
-        while(!done)
+        String out = board[0] + "\n";
+        
+        for(int i = 1; i < board.length; i++)
         {
+            out += board[i] + " ";
+            if(i == 2 || i == 5 || i == 9)
+            {
+                out += "\n";
+            }
+        }
+        
+        return out;
+    }
+    
+    public LinkedList<GameResult> play()
+    {
+        LinkedList<GameResult> games = new LinkedList<>();
+        
+        while(true)
+        {
+            // get a list of all available moves
             LinkedList<Move> possibleMoves = new LinkedList<>();
             for(int from = 0; from < board.length; from++)
             {
@@ -188,49 +179,60 @@ public class Game implements Callable<Integer>
                 {
                     for(Pair p : allMoves.get(from))
                     {
-                        if(board[p.to] == 0)
+                        if(board[p.over] == 1 && board[p.to] == 0)
                         {
                             possibleMoves.add(new Move(p.to, from));
                         }
                     }
                 }
             }
-
+            
+            // if there are no more moves this game return
             if(possibleMoves.isEmpty())
             {
-                // game over
-                done = true;
+                games.add(new GameResult(moves, getPegsRemaining()));
+                return games;
             }
-            else if(possibleMoves.size() == 1)
+            
+            // if there is only one move, take it and continue
+            Move takeThis = possibleMoves.removeFirst();
+            
+//            System.out.println(possibleMoves.size() + " other possible moves");
+            
+            // take all other possible moves
+            while(!possibleMoves.isEmpty())
             {
-                // only one move, take it
-                Move m = possibleMoves.getFirst();
-                moves.add(m);
-                jump(m.from, m.to);
+                int[] otherBoard = new int[board.length];
+                System.arraycopy(board, 0, otherBoard, 0, board.length);
+                ArrayList<Move> otherMoves = (ArrayList<Move>)moves.clone();
+                Game g = new Game(otherBoard, otherMoves);
+                Move m = possibleMoves.removeFirst();
+                g.jump(m);
+                g.moves.add(m);
+                games.addAll(g.play());
             }
-            else
-            {
-                Move takeThis = possibleMoves.removeFirst();
-                for(Move m : possibleMoves)
-                {
-                    int[] otherBoard = new int[board.length];
-                    System.arraycopy(board, 0, otherBoard, 0, board.length);
-                    ArrayList<Move> otherMoves = (ArrayList<Move>)moves.clone();
-                    otherMoves.add(m);
-                    Game otherGame = new Game(otherBoard, otherMoves);
-                    otherGame.jump(m.from, m.to);
-                    synchronized(games)
-                    {
-                        games.put(otherGame, es.submit(otherGame));
-                    }
-                }
-                
-                moves.add(takeThis);
-                jump(takeThis.from, takeThis.to);
-            }
+            
+            jump(takeThis);
+            moves.add(takeThis);
         }
+    }
+    
+    public class GameResult
+    {
+        public final ArrayList<Move> moves;
+        public final int pegsLeft;
         
-        // report games
+        /**
+         * Makes a new game result with the given sequence of moves and results
+         * in the given number of pegs left.
+         * @param moves The sequence of moves to get this game result
+         * @param pegs The number of pegs left at the end of the game
+         */
+        public GameResult(ArrayList<Move> moves, int pegs)
+        {
+            this.moves = moves;
+            this.pegsLeft = pegs;
+        }
     }
     
     /**
